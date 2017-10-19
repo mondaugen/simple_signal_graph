@@ -5,13 +5,14 @@
 #include "err.h"
 #include "val.h"
 
-struct graph_node_c {
+class graph_node_c {
     public:
     static err_t connect(graph_node_c *parent, size_t output_i, graph_node_c *child, size_t input_i);
     val_t **inputs;
     size_t ninputs;
     virtual val_t *outputs(size_t i);
     virtual void eval () = 0;
+    virtual void free () = 0;
 };
  
 #endif /* GRAPH_NODE_HH */
