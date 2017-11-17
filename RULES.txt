@@ -1,0 +1,34 @@
+# Objection orientation
+
+Generally the code follows an object-oriented style where structures keep track of some state which its member functions use when acting upon other objects. 
+As we are using plain C, classes are simply structs with the following behaviour:
+- They are typedef'd to a name class_name_t and referred to as such.
+- Member functions shared by all instances of the class go into a vector table to which each instance of the class holds a reference. The way it does this is by having the field "_vt" pointing to its vector table. The vector table is a struct where each field is the name of a function. To call the function f on the object o with arguments a,b,c, you could write `o->_vt->f(o,a,b,c)`. For convenience, we provide the macro `mf(o,f,...)` where the ellipses are replaced by the arguments (there can be no arguments) and the macro expands to the above expression.
+- Using this technique makes it easy to create a subclass. classes should have a class_name_init(class_name_t *cn, class_name_init_t *cni) function that is called when intializing an instance of the class. Then subclassing is done as follows: put the super class's struct as the first field of the subclassing struct, and the super class's init struct as the first field of the subclass's init struct. The subclassing struct can then provide its own functions by making a vector table structure whose fields are the functions (named the same as the super class's functions if you want them to "override" them).  In the following we refer to the only instance of this vector table structure (typically a static varible) as _subclass_vt. Then the function for `subclass_init` is
+
+subclass_init(subclass_t *sc, subclass_init_t *sci)
+{
+    superclass_init((superclass_t*)sc,(superclass_init_t*)sci);
+    sc->_vt = _subclass_vt;
+    /* more initialization */
+    ...
+}
+
+Now you can call the subclass methods with mf(subclass_instance,function_name,args...) and the superclass methods with mf((superclass_t*)subclass_instance,function_name,args...)
+
+See the code for examples of this style.
+
+# Error types
+
+Error types should be typedef'd ints, that is, any function returning an error code is really returning an int. The type information is there to indicate that this type can be passed to a function (provided by the module) that will give more verbose error information. A return value of 0 means "no error", non-zero means some kind of error.
+
+# Structure generation
+
+./gen_struct_alloc.pl should be used to generate the initialization structures and code for complex structures. See its code for details.
+
+# Naming
+
+The name of all typedef'd types should end in _t.
+The names of static functions should begin with _.
+The names of non-static functions that belong to a class should begin with classname_ and if taking an instance of the class as input, should take it in its first argument, e.g., classname_init(classname_t *c, ...)
+

@@ -1,4 +1,5 @@
 use warnings;
+use File::Basename;
 
 =head1 gen_struct_alloc.pl
 Process a file containing structure declarations yielding a structure and
@@ -29,11 +30,15 @@ struct_name_t {
  # initialization structure is the type called type3_meminit_t. This is so many
  # structures can be nested and will have predictable initialization types. Of
  # course if a custom type is provided, the SIZE function needs to accept this
- # type.  The allocation of the structure in this case is as follows. An array
- # of pointers of size si->fieldname3_sz to elements of type3 is allocated, to
- # which "fieldname3" will point. Then an array of size si->fieldname_sz *
- # SIZE(&si->fieldname3) is allocated to hold the objects of type3 and each
- # element of fieldname3 points to the start of each object.
+ # type. In the case that the type's size is fixed (say you give TYPE_SIZE for
+ # the size function) you can specify "//ignore" (ignore can be whatever, it's
+ # the // that does the ignoring) and no init type
+ # will be placed in the init struct. The allocation of the structure in this
+ # case is as follows. An array of pointers of size si->fieldname3_sz to
+ # elements of type3 is allocated, to which "fieldname3" will point. Then an
+ # array of size si->fieldname_sz * SIZE(&si->fieldname3) is allocated to hold
+ # the objects of type3 and each element of fieldname3 points to the start of
+ # each object.
  type3 fieldname3 d [[custom_sz(&si->fieldname3)] type3_init_type]
 
  # The last case is almost like d except fieldname4 points to a single instance
@@ -62,14 +67,36 @@ The allocated structure can simply be freed using FREE.
 TODO: Separate the initialize part of the alloc function so that arbitrary
 memory of appropriate size can be initialized.
 =cut
- 
+
+my $argc = $#ARGV+1;
+if (!$argc) {
+    print STDERR "Specify input file, a file containing structure abbreviations.\n";
+    exit 1;
+}
+
+$outfile_prefix=".";
+if ($argc == 2) {
+    $outfile_prefix=$ARGV[1];
+}
+
+open $input_file,"<$ARGV[0]" or die "Couldn't open $ARGV[0]";
+$hfn=basename($ARGV[0]);
+$hfn=~s/\.sabrv$//;
+$hfn=$outfile_prefix."/".$hfn;
+$sfn=$hfn."_defs.h";
+$hfn=$hfn."_decls.h";
+open $header_file,">$hfn" or die "Couldn't open $hfn";
+open $source_file,">$sfn" or die "Couldn't open $sfn";
+
+print $header_file "#include <stddef.h>\n";
 
 my$in_struct=0;
 my@fields;
 my$struct_def;
 my$init_struct;
 my$szfun;
-my$alloc_fun;
+my$init_fun;
+my$header_file_end;
 
 sub defs_append {
  ($type,$fld_name) = @_;
@@ -82,9 +109,9 @@ sub defs_append_a {
  $struct_def.="size_t ${fld_name}_sz;\n";
  $init_struct.="size_t ${fld_name}_sz;\n";
  if(!$szof){$szof="sizeof($type)";}
- $szfun.="sz += si->${fld_name}_sz * $szof;";
+ $szfun.="sz += si->${fld_name}_sz * $szof;\n";
  # memory initialization
- $alloc_fun.=<<"END";
+ $init_fun.=<<"END";
 ret->$fld_name = ($type*)ptr;
 ptr += si->${fld_name}_sz * $szof;
 ret->${fld_name}_sz = si->${fld_name}_sz;
@@ -95,19 +122,19 @@ END
 sub defs_append_d {
  ($type,$fld_name,$szof,$itype)=@_;
  ($_type)=($type=~/(.+?)(_t|)$/);
- $struct_def.=" $type **${fld_name};";
+ $struct_def.=" $type **${fld_name};\n";
  $struct_def.=" size_t ${fld_name}_sz;\n";
  $init_struct.=" size_t ${fld_name}_sz;\n";
  if(!$itype){$itype="${fld_name}_meminit_t";}
- $init_struct.="$itype $fld_name;";
+ $init_struct.="$itype $fld_name;\n";
  if(!$szof){$szof="${_type}_sz(&si->$fld_name)";}
  # type is a pointer in this case
- $szfun.="sz += si->${fld_name}_sz * sizeof($type*);";
- $szfun.="sz += si->${fld_name}_sz * $szof;";
- $alloc_fun.=<<"END";
+ $szfun.="sz += si->${fld_name}_sz * sizeof($type*);\n";
+ $szfun.="sz += si->${fld_name}_sz * $szof;\n";
+ $init_fun.=<<"END";
 ret->${fld_name} = ($type**)ptr;
 tmp = ptr;
-tmp += si->${fld_name}_sz * sizeof($type**);
+tmp += si->${fld_name}_sz * sizeof($type*);
 for (n = 0; n < si->${fld_name}_sz; n++) {
 *($type**)ptr = ($type*)tmp;
 ptr = (char*)(($type**)ptr+1);
@@ -120,12 +147,12 @@ END
 
 sub defs_append_s {
  ($type,$fld_name,$szof,$itype)=@_;
- $struct_def.=" $type *${fld_name};";
+ $struct_def.=" $type *${fld_name};\n";
  if(!$itype){$itype="${fld_name}_meminit_t";}
- $init_struct.="$itype $fld_name;";
+ $init_struct.="$itype $fld_name;\n";
  if(!$szof){$szof="${_type}_sz(&si->$fld_name)";}
- $szfun.="sz += si->${fld_name}_sz * $szof;";
- $alloc_fun.=<<"END";
+ $szfun.="sz += si->${fld_name}_sz * $szof;\n";
+ $init_fun.=<<"END";
 ret->${fld_name} = ($type*)ptr;
 ptr += $szof;
 END
@@ -136,49 +163,49 @@ sub defs_end {
  $struct_def.="} ${struct_name}_t;\n";
  $init_struct.="} ${struct_name}_meminit_t;\n";
  $szfun.="return sz;\n}\n";
- $alloc_fun.="return ret;\n}\n";
+ $init_fun.="}\n";
 }
 
 sub defs_start {
- $struct_def="struct {\n";
- $init_struct="struct {\n";
+ $header_file_end="";
+ $struct_def="typedef struct {\n";
+ $init_struct="typedef struct {\n";
 
+ my $szfun_decl = "size_t ${struct_name}_sz(${struct_name}_meminit_t *si)";
  $szfun=<<"END";
-size_t
-${struct_name}_sz(${struct_name}_meminit_t *si)
+$szfun_decl
 {
-size_t sz = 0;
+size_t sz = sizeof(${struct_name}_t);
 END
  ;
+ $header_file_end.=$szfun_decl.";\n";
 
- $alloc_fun=<<"END";
-${struct_name}_t *
-${struct_name}_alloc(${struct_name}_meminit_t *si)
+    my $alloc_fun_decl = "void ${struct_name}_init(${struct_name}_t *ret, ${struct_name}_meminit_t *si)";
+ $init_fun=<<"END";
+$alloc_fun_decl
 {
-size_t sz = ${struct_name}_sz(si);
-${struct_name}_t *ret = CALLOC(1,sz);
-if (!ret) { return NULL; }
 char *ptr = (char*)(ret+1);
 char *tmp;
 size_t n;
 END
  ;
+ $header_file_end.=$alloc_fun_decl.";\n";
 }
 
-while(<>)
+while(<$input_file>)
 {
  if($in_struct)
  {
   if(!/^\s*#/)
   {
    $n=($type,$fld_name,$flag,$szof,$itype)=/(\S+)\s*/g;
-   print "$n\n";
    if(/^\}$/)
    #  }elsif(/^\s*\}\s*;* *$/)
    {
-    print "out of struct\n"; #D
     &defs_end();
-    print"$struct_def\n$init_struct\n$szfun\n$alloc_fun\n";
+    print $header_file "$struct_def\n$init_struct\n";
+    print $header_file "$header_file_end";
+    print $source_file "$szfun\n$init_fun\n";
     $in_struct=0;
    }elsif($n=($type,$fld_name,$flag,$szof,$itype)=/(\S+)\s*/g){
     if($n<=1){next;}
@@ -208,17 +235,20 @@ while(<>)
       # stored in this field.
       &defs_append_s($type,$fld_name,$szof,$itype);
      }
-     else { print "// Unrecognized flag ${flag}"; }
+     else { print STDERR "// Unrecognized flag ${flag}"; }
     }
    }
+  }else{
+      # Print comment as C-style comment
+      $_=~s/^\s*#//;
+      $_=~s/\n$//;
+      $struct_def.="/* $_ */\n";
   }
  }
  else
  {
   if(($struct_name)=$_=~/(\w+?)(?:_t|)\s*\{\s*$/)
   {
-   print "in struct\n"; #D
-
    $in_struct=1;
    &defs_start();
   }

@@ -1,0 +1,10 @@
+# Abbreviation file for graph_desc_t
+
+graph_desc_t {
+    char name a
+    char nd_names d GRAPH_DESC_MAX_NAME_LEN //ignore
+    graph_cxn_t cxns a
+    # The evalutation order of the graph
+    int ord a
+}
+
