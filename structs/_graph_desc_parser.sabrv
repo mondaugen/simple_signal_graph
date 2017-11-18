@@ -1,0 +1,8 @@
+graph_desc_parser_t {
+    graph_desc_parser_sz_t max_szs
+    graph_desc_t *tmp_gd s
+    # Do this in file included before the generated _sdefs file:
+    # typedef int * _gd_adj_list_t
+    _gd_adj_list_t adj_lists a
+    int adj_list_mem a
+}

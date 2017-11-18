@@ -167,9 +167,9 @@ _node_ary_from_desc(const int **cxns,
    If zero returned, "order" contains the topologically sorted graph.
 */
 int
-tsg_compute(const int **graph, int *order)
+tsg_compute(const int **graph, int n_nodes, int *order)
 {
-    int ret = 0, n = 0; 
+    int ret = 0; 
     const int **cxnsptr;
     _nafd_ret_t nodeinfo = _NAFD_DEFAULT;
     node_t *ordered;
@@ -177,8 +177,7 @@ tsg_compute(const int **graph, int *order)
         ret = 1; goto end;
     }
     cxnsptr = graph;
-    while (*cxnsptr++) { n++; }
-    ordered = _tsort_dfs(nodeinfo.nodeary,n);
+    ordered = _tsort_dfs(nodeinfo.nodeary,n_nodes);
     if (!ordered) {
         ret = 2; goto end;
     }

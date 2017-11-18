@@ -15,6 +15,7 @@ typedef struct {
 } graph_cxn_t;
 
 #include "_graph_desc_decls.h"
+#include "_graph_desc_parser_decls.h"
 
 typedef graph_desc_meminit_t graph_desc_parser_sz_t;
 typedef struct graph_desc_parser_t graph_desc_parser_t;
