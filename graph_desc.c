@@ -1,9 +1,13 @@
+#include <stdio.h>
+#include <string.h>
 #include "graph_desc.h"
+#include "defs.h"
+#include "tsortg.h"
 
-#include "_graph_desc_sdefs.h"
 typedef int * _gd_adj_list_t;
-#include "_graph_desc_parser_sdefs.h"
 #include "_graph_desc_defs.h"
+#include "_graph_desc_parser_sdefs.h"
+#include "_graph_desc_parser_defs.h"
 
 #define _CHR_BUF_LEN 256
 
@@ -12,12 +16,24 @@ typedef union {
         gd_err_NONE = 0,
         gd_err_NAME_TOO_LONG,
         gd_err_NERRS,
+        gd_err_TOO_MANY_NODES,
+        gd_err_TOO_MANY_CXNS,
+        gd_err_CXN_DESC_TOO_LONG,
+        gd_err_BAD_CXN_DESC,
+        gd_err_BUILDING_ADJ_LIST,
+        gd_err_TSORTING_GRAPH,
+        gd_err_ALLOCATING_GRAPH,
+        gd_err_ND_NAME_TOO_LONG
     } e;
     gd_err_t i;
 } _gd_err_t;
 
-/* Normally if the graph_desc filled all the memory that was allocated to it, you could just copy it with memcpy, but what we have here is a graph description whose sizes have been temporarily made small. We want to copy it to a graph_desc_t that is "tight", i.e., the graph_desc fills all the memory allocated to it.
-If dst is set to NULL, the function just returns the amount of space that needs to be allocated for copying src. */
+/* Normally if the graph_desc filled all the memory that was allocated to it,
+   you could just copy it with memcpy, but what we have here is a graph
+   description whose sizes have been temporarily made small. We want to copy it
+   to a graph_desc_t that is "tight", i.e., the graph_desc fills all the memory
+   allocated to it.  If dst is set to NULL, the function just returns the amount
+   of space that needs to be allocated for copying src. */
 size_t
 graph_desc_copy(graph_desc_t *dst, const graph_desc_t *src)
 {
@@ -25,7 +41,7 @@ graph_desc_copy(graph_desc_t *dst, const graph_desc_t *src)
         .name_sz = src->name_sz,
         .nd_names_sz = src->nd_names_sz,
         .cxns_sz = src->cxns_sz,
-        .ord = src->ord_sz
+        .ord_sz = src->ord_sz
     };
     size_t sz = graph_desc_sz(&gdmi);
     if (dst) {
@@ -46,6 +62,33 @@ graph_desc_copy(graph_desc_t *dst, const graph_desc_t *src)
     return sz;
 }
 
+void
+_graph_desc_printf(graph_desc_t *gd)
+{
+    size_t buflen = gd->name_sz+1;
+    char buf[buflen];
+    buf[buflen-1]='\0';
+    memcpy(buf,gd->name,gd->name_sz);
+    printf("Name: %s\n",buf);
+    size_t n;
+    for (n = 0; n < gd->nd_names_sz; n++) {
+        printf("node %zu: %s\n",n,gd->nd_names[n]);
+    }
+    for (n = 0; n < gd->cxns_sz; n++) {
+        printf("node cxn %zu: %d %d %d %d\n",
+                n,
+                gd->cxns[n].p,
+                gd->cxns[n].o,
+                gd->cxns[n].c,
+                gd->cxns[n].i);
+    }
+    printf("ord: ");
+    for (n = 0; n < gd->ord_sz; n++) {
+        printf("%d ",gd->ord[n]);
+    }
+    printf("\n");
+}
+
 graph_desc_parser_t *
 graph_desc_parser_new(graph_desc_parser_init_t *init)
 {
@@ -53,7 +96,10 @@ graph_desc_parser_new(graph_desc_parser_init_t *init)
            N_cxns = init->max_szs.cxns_sz;
     graph_desc_parser_meminit_t gdpmi = {
         .tmp_gd = init->max_szs,
-    /* this is additional space to do topological sorting of graphs. In the worst case a graph could have N_nds^2 connections, so we allocate enough space for this. (This graph cannot be acylical of course, but this is determined by the tsortg algorithm). */
+    /* this is additional space to do topological sorting of graphs. In the
+       worst case a graph could have N_nds^2 connections, so we allocate enough
+       space for this. (This graph cannot be acylical of course, but this is
+       determined by the tsortg algorithm). */
         .adj_lists_sz = N_nds,
         .adj_list_mem_sz = (N_cxns*N_cxns) + N_nds
     };
@@ -132,7 +178,7 @@ _parse_line(char *pch,
         if (sz == max_len) {
             return -1;
         }
-        if (!mf(cs,get_chr,pch)
+        if (mf(cs,get_chr,pch)
                 || *pch == '\n') {
             *pch = '\0';
             break;
@@ -150,11 +196,10 @@ graph_desc_parser_parse(graph_desc_parser_t *gdp,
 {
     graph_desc_t *ret = NULL;
     int sz = 0;
-    char *pch = ;
     int err = gd_err_NONE;
     /* Parse graph's name */
     if ((sz = _parse_line(gdp->tmp_gd->name,
-                gdp->max_szs->name_sz,cs)) < 0) {
+                gdp->max_szs.name_sz,cs)) < 0) {
         err = gd_err_NAME_TOO_LONG;
         goto cleanup;
     }
@@ -162,7 +207,7 @@ graph_desc_parser_parse(graph_desc_parser_t *gdp,
     size_t idx = 0;
     /* Parse names of nodes in graph */
     while (1) {
-        if (idx == gdp->max_szs->nd_names_sz) {
+        if (idx == gdp->max_szs.nd_names_sz) {
             err = gd_err_TOO_MANY_NODES;
             goto cleanup;
         }
@@ -186,7 +231,7 @@ graph_desc_parser_parse(graph_desc_parser_t *gdp,
     idx = 0;
     char buf[_CHR_BUF_LEN];
     while (1) {
-        if (idx == gdp->max_szs->cxns_sz) {
+        if (idx == gdp->max_szs.cxns_sz) {
             err = gd_err_TOO_MANY_CXNS;
             goto cleanup;
         }
@@ -200,7 +245,7 @@ graph_desc_parser_parse(graph_desc_parser_t *gdp,
             /* Read 2 \n in a row, end of that section */
             break;
         }
-        cxn_t *pcxn = &gdp->tmp_gd->cxns[idx];
+        graph_cxn_t *pcxn = &gdp->tmp_gd->cxns[idx];
         sz = sscanf(buf,
                 "%d %d %d %d",
                 &pcxn->p,
@@ -223,7 +268,7 @@ graph_desc_parser_parse(graph_desc_parser_t *gdp,
                 /* adj_lists */
                 gdp->adj_lists,
                 /* adj_list_mem */
-                gdp->adj_lists_mem,
+                gdp->adj_list_mem,
                 /* N_nds */
                 gdp->tmp_gd->nd_names_sz)) {
         err = gd_err_BUILDING_ADJ_LIST;
@@ -254,8 +299,14 @@ cleanup:
     return err;
 }
 
+void
+graph_desc_free(graph_desc_t *gd)
+{
+    free(gd);
+}
 
-
-
-
-
+void
+graph_desc_parser_free(graph_desc_parser_t *gdp)
+{
+    free(gdp);
+}

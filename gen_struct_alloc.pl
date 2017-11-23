@@ -136,6 +136,7 @@ sub defs_append_d {
  $szfun.="sz += si->${fld_name}_sz * $szof;\n";
  $init_fun.=<<"END";
 ret->${fld_name} = ($type**)ptr;
+ret->${fld_name}_sz = si->${fld_name}_sz;
 tmp = ptr;
 tmp += si->${fld_name}_sz * sizeof($type*);
 for (n = 0; n < si->${fld_name}_sz; n++) {

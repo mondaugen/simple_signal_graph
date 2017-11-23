@@ -93,10 +93,10 @@ _nafd_ret_destroy(_nafd_ret_t *n)
 /* Places node array and references to its nodes in nafdr.  When process
    finished with node array, call _nafd_ret_destroy(nafdr).  */
 static int
-_node_ary_from_desc(const int **cxns, 
+_node_ary_from_desc(int **cxns, 
                     _nafd_ret_t *nafdr)
 {
-    const int **cxnsptr = cxns;
+    int **cxnsptr = cxns;
 /* Number of nodes */
     int nnodes = 0;
 /* Total number of connections */
@@ -167,16 +167,15 @@ _node_ary_from_desc(const int **cxns,
    If zero returned, "order" contains the topologically sorted graph.
 */
 int
-tsg_compute(const int **graph, int n_nodes, int *order)
+tsg_compute(int ** const graph, int n_nodes, int *order)
 {
     int ret = 0; 
-    const int **cxnsptr;
     _nafd_ret_t nodeinfo = _NAFD_DEFAULT;
     node_t *ordered;
     if (_node_ary_from_desc(graph,&nodeinfo)) {
         ret = 1; goto end;
     }
-    cxnsptr = graph;
+    int ** const cxnsptr = graph;
     ordered = _tsort_dfs(nodeinfo.nodeary,n_nodes);
     if (!ordered) {
         ret = 2; goto end;
