@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 #include "rbn.h"
 #include "queue.h"
 
@@ -142,6 +143,102 @@ rbn_insert(rbn_t *t, rbn_t *n, int (*cmp)(void *,void*))
     return t;
 }
 
+/* This is like insert but if cmp returns 0 the append function is called on the item stored at the node deemed to be equal. This is useful for situations where you want to store many items at the same index.
+   If d is not deemed to be equal to any existing node, the allocator is called to allocate a rbn_t's worth of space and this is initialized as an rbn_t, which is then put in the tree.
+   alloc_aux is passed to the alloc function (in case it is needed).
+   If d is equal to an existing node, append is called on it to attach it somehow to the value already at the node.
+   The "sub" is appended to the "obj".
+   If alloc returns NULL indicating failure, the function returns NULL and the tree is left untouched.
+   the append function returns the new value to be put in the node. This is useful for building up linked lists, say. If it returns NULL, the function returns NULL indicating failure. It is up to the append function to ensure the data remains untouched in this case.
+*/
+rbn_t *
+rbn_insert_append(rbn_t *t, 
+        void *d, 
+        void *(*alloc)(size_t,void*),
+        void *alloc_aux,
+        int (*cmp)(void *,void*),
+        void *(*append)(void *sub, void *obj))
+{
+    rbn_t *n = NULL;
+    if (!t) {
+        n=alloc(rbn_sz(),alloc_aux);
+        if(!n){return NULL;}
+        rbn_init(n,d);
+        n->c = _BLK;
+        n->p = t;
+        return n;
+    }
+    while (t) {
+        int cmpr = cmp(t->d, d);
+        if (cmpr == 0) {
+            void *tmp = append(d,t->d);
+            if (!tmp) {
+                return NULL;
+            }
+            t->d = tmp;
+            n = t;
+            break;
+        } else if (cmpr > 0) {
+        //if (cmpr >= 0) {
+            if (t->l) {
+                t = t->l;
+            } else {
+                n=alloc(rbn_sz(),alloc_aux);
+                if(!n){return NULL;}
+                rbn_init(n,d);
+                n->c = _RED;
+                t->l = n;
+                n->p = t;
+                break;
+            }
+        } else {
+            if (t->r) {
+                t = t->r;
+            } else {
+                n=alloc(rbn_sz(),alloc_aux);
+                if(!n){return NULL;}
+                rbn_init(n,d);
+                n->c = _RED;
+                t->r = n;
+                n->p = t;
+                break;
+            }
+        }
+    }
+    t = n;
+    _insert_fixup(t);
+    while (t->p) {
+        t = t->p;
+    }
+    return t;
+}
+
+/* Search the tree for a value d that causes cmp to return 0, return that value if it is there or NULL if not found.
+   */
+void *
+rbn_search(rbn_t *t, void *d,int (*cmp)(void*,void*))
+{
+    while (t) {
+        int cmpr = cmp(t->d, d);
+        if (cmpr == 0) {
+            return t->d;
+        } else if (cmpr > 0) {
+            if (t->l) {
+                t = t->l;
+            } else {
+                break;
+            }
+        } else {
+            if (t->r) {
+                t = t->r;
+            } else {
+                break;
+            }
+        }
+    }
+    return NULL;
+}
+
 rbn_t *
 rbn_new(void *d)
 {
@@ -149,6 +246,22 @@ rbn_new(void *d)
     if (!ret) { return NULL; }
     ret->d = d;
     return ret;
+}
+
+/* Get the size of a rbn for allocation */
+size_t
+rbn_sz(void)
+{
+    return sizeof(rbn_t);
+}
+
+/* Initialize an rbn_t that has already been allocated */
+void
+rbn_init(rbn_t *r, void *d)
+{
+    if (!r) { return; }
+    memset(r,0,rbn_sz());
+    r->d = d;
 }
 
 void

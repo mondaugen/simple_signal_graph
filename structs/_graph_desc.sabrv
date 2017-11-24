@@ -1,10 +1,15 @@
 # Abbreviation file for graph_desc_t
 
 graph_desc_t {
+    # the name of this graph
     char name a
-    char nd_names d GRAPH_DESC_MAX_NAME_LEN //ignore
+    # typedef _nd_name_t to char *
+    _nd_name_t nd_names a
+    # the connections in the graph
     graph_cxn_t cxns a
     # The evalutation order of the graph
     int ord a
+    # Memory to hold all this stuff
+    char mem a
 }
 

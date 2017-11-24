@@ -9,3 +9,6 @@ rbn_test: queue.c rbn.c test/rbn_test.c
 
 graph_desc_init_test: graph_desc.c test/graph_desc_init_test.c .gen/_graph_desc_decls.h .gen/_graph_desc_defs.h
 	cc -I . -I .gen -o $(BINDIR)/$@ $(filter %.c,$^) -g
+
+rbn_append_test: test/rbn_append_test.c queue.c rbn.c
+	cc -I. -o $(BINDIR)/$@ $(filter %.c,$^) -g

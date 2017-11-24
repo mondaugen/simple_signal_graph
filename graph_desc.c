@@ -74,6 +74,8 @@ _graph_desc_printf(graph_desc_t *gd)
     for (n = 0; n < gd->nd_names_sz; n++) {
         printf("node %zu: %s\n",n,gd->nd_names[n]);
     }
+    /* TODO: the connection description style is redundant, make a style where
+       all the outward connections are listed for each node. */
     for (n = 0; n < gd->cxns_sz; n++) {
         printf("node cxn %zu: %d %d %d %d\n",
                 n,
