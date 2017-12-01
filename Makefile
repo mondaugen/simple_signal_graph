@@ -6,6 +6,10 @@ GENHDRS=$(addprefix	$(GHDRPREFIX), \
 				$(addsuffix $(suf), $(GHDRS))))
 SABRVS=$(addprefix structs/, $(addsuffix .sabrv, $(GHDRS)))
 GENSCRIPT=gen_struct_alloc.pl
+		
+.PHONY: struct_headers
+
+struct_headers: $(GENHDRS)
 
 $(GENHDRS) : $(SABRVS) $(GENSCRIPT)
 	mkdir -p $(GHDRPREFIX)

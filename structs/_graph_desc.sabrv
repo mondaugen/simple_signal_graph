@@ -2,14 +2,14 @@
 
 graph_desc_t {
     # the name of this graph
-    char name a
+    char *name
     # typedef _nd_name_t to char *
     _nd_name_t nd_names a
+    # A tree storing the locations and names of arguments
+    rbn_t *vartree
     # the connections in the graph
     graph_cxn_t cxns a
     # The evalutation order of the graph
     int ord a
-    # Memory to hold all this stuff
-    char mem a
 }
 

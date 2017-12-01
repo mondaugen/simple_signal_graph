@@ -24,6 +24,7 @@ typedef struct graph_desc_parser_t graph_desc_parser_t;
 
 typedef struct {
     graph_desc_parser_sz_t max_szs;
+    size_t parse_mem_sz;
 } graph_desc_parser_init_t;
 
 graph_desc_parser_t *

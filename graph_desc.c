@@ -3,6 +3,8 @@
 #include "graph_desc.h"
 #include "defs.h"
 #include "tsortg.h"
+#include "gralloc.h"
+#include "rbn.h"
 
 typedef int * _gd_adj_list_t;
 #include "_graph_desc_defs.h"
@@ -10,6 +12,13 @@ typedef int * _gd_adj_list_t;
 #include "_graph_desc_parser_defs.h"
 
 #define _CHR_BUF_LEN 256
+#define _VAR_PATTERN "\$\{[A-Za-z0-9_][]\[A-Za-z0-9_]*\}"
+/* variable pattern starts with ${ */
+#define _VAR_LEAD "${"
+#define _VAR_LEAD_LEN 2
+/* variable pattern ends with } */
+#define _VAR_TAIL "}"
+#define _VAR_TAIL_LEN 1
 
 typedef union {
     enum {
@@ -27,6 +36,28 @@ typedef union {
     } e;
     gd_err_t i;
 } _gd_err_t;
+
+struct gd_var_t {
+    char *name;
+    size_t nd_idx;
+    size_t arg_idx;
+};
+
+void
+gd_var_init(gd_var_t *g,
+    char *name,
+    size_t nd_idx,
+    size_t arg_idx)
+{
+    *g = (gd_var_t) {name,nd_idx,arg_idx};
+}
+
+static void *
+_gralloc_alloc(size_t s,void* _a)
+{
+    gralloc_t *a = _a;
+    return gralloc_alloc(a,s);
+}
 
 /* Normally if the graph_desc filled all the memory that was allocated to it,
    you could just copy it with memcpy, but what we have here is a graph
@@ -103,7 +134,8 @@ graph_desc_parser_new(graph_desc_parser_init_t *init)
        space for this. (This graph cannot be acylical of course, but this is
        determined by the tsortg algorithm). */
         .adj_lists_sz = N_nds,
-        .adj_list_mem_sz = (N_cxns*N_cxns) + N_nds
+        .adj_list_mem_sz = (N_cxns*N_cxns) + N_nds,
+        .parse_mem_sz = init->parse_mem_sz
     };
     size_t sz = graph_desc_parser_sz(&gdpmi);
     graph_desc_parser_t *ret = calloc(1,sz);
@@ -113,7 +145,17 @@ graph_desc_parser_new(graph_desc_parser_init_t *init)
     graph_desc_parser_meminit(ret,&gdpmi);
     graph_desc_meminit(ret->tmp_gd,&init->max_szs);
     ret->max_szs = init->max_szs;
+    gralloc_init(&ret->_alloc,
+            ret->parse_mem,
+            ret->parse_mem+ret->parse_mem_sz);
+    char *repat = _VAR_PATTERN;
+    if(regcomp(&ret->_re,repat,0)) {
+        goto cleanup;
+    }
     return ret;
+cleanup:
+    free(ret);
+    return NULL;
 }
 
 graph_desc_t *
@@ -191,6 +233,36 @@ _parse_line(char *pch,
     return sz;
 }
 
+static char *
+_compress_store_var(
+        char *str, /* String to "compress" */
+        /* The number of characters to discard before variable name, e.g., for
+           ${varname} this is 2 */
+        size_t lead, 
+        /* The number of characters to discard before variable name, e.g., for
+           ${varname} this is 1. Should be positive (not 0). */
+        size_t tail,
+        /* The offset from the beginning of str of the
+           first character of the whole variable string, e.g., for abc${varname}
+           the offset is 3.
+         */
+        size_t off,
+        /* The entire variable length including lead
+           and tail. */
+        size_t varlen)
+{
+    size_t innerlen = varlen - lead - tail;
+    char buf[innerlen];
+    char *ret = str + strlen(str) - innerlen;
+    memcpy(buf,str+off+lead,innerlen);
+    /* +1 to include \0 */
+    memmove(str+off,str+off+varlen,strlen(str+off+varlen)+1);
+    memcpy(ret,buf,innerlen);
+    return ret;
+}
+
+
+
 gd_err_t
 graph_desc_parser_parse(graph_desc_parser_t *gdp,
                         char_stream_t *cs,
@@ -200,12 +272,11 @@ graph_desc_parser_parse(graph_desc_parser_t *gdp,
     int sz = 0;
     int err = gd_err_NONE;
     /* Parse graph's name */
-    if ((sz = _parse_line(gdp->tmp_gd->name,
-                gdp->max_szs.name_sz,cs)) < 0) {
+    if (!(gdp->tmp_gd->name =
+                gralloc_parse_line(&gdp->_alloc,&sz,cs))) {
         err = gd_err_NAME_TOO_LONG;
         goto cleanup;
     }
-    gdp->tmp_gd->name_sz = (size_t)sz;
     size_t idx = 0;
     /* Parse names of nodes in graph */
     while (1) {
@@ -213,18 +284,54 @@ graph_desc_parser_parse(graph_desc_parser_t *gdp,
             err = gd_err_TOO_MANY_NODES;
             goto cleanup;
         }
-       if ((sz = _parse_line(gdp->tmp_gd->nd_names[idx],
-                   GRAPH_DESC_MAX_NAME_LEN,
-                   cs)) < 0) {
-           err = gd_err_ND_NAME_TOO_LONG;
-           goto cleanup;
-       }
-       /* We don't keep track of each node name's size */
-       if (sz == 0) {
-           /* Read 2 \n in a row, end of that section */
-           break;
-       }
-       idx++;
+        if (!(gdp->tmp_gd->nd_names[idx] =
+                    gralloc_parse_line(&gdp->_alloc,&sz,cs))) {
+            err = gd_err_ND_NAME_TOO_LONG;
+            goto cleanup;
+        }
+        /* We don't keep track of each node name's size */
+        if (sz == 1) {
+            /* Read 2 \n in a row, end of that section */
+            break;
+        }
+        /* Parse argument and variables */
+        char *args;
+        strtok_r(gdp->tmp_gd->nd_names[idx]," ",&args);
+        char *ptr = gdp->tmp_gd->nd_names[idx];
+        regmatch_t rm;
+        int flg = 1;
+        while (regexec(&gdp->_re,ptr,1,&rm,0) == 0) {
+            size_t len = rm.rm_eo - rm.rm_so;
+            char *varname = _compress_store_var(ptr,
+                    _VAR_LEAD_LEN,
+                    _VAR_TAIL_LEN,
+                    rm.rm_so,
+                    len);
+            gd_var_t *gdvar = gralloc_alloc(&gdp->_alloc,
+                    sizeof(gd_var_t));
+            if (!gdvar) {
+                err = gd_err_ALLOCATING_VAR;
+                goto cleanup;
+            }
+            ptr += rm.rm_so;
+            gd_var_init(gdvar,
+                    varname, /* name */
+                    idx, /* node index */
+                    /* offset in string */
+                    ptr - gdp->tmp_gd->nd_names[idx]);
+            rbn_t *_tree = rbn_insert_append(
+                    gdp->tmp_gd->vartree,
+                    gdvar,
+                    _gralloc_alloc, /* Wrapper */
+                    &gdp->_alloc,
+                    gd_var_cmp,
+                    gd_var_append);
+            if (!_tree) {
+                goto cleanup;
+            }
+            gdp->tmp_gd->vartree = _tree;
+        }
+        idx++;
     }
     gdp->tmp_gd->nd_names_sz = idx;
     /* This will also be the size of the ordered node array */

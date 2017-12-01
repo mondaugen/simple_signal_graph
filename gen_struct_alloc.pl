@@ -70,7 +70,7 @@ memory of appropriate size can be initialized.
 
 my $argc = $#ARGV+1;
 if (!$argc) {
-    print STDERR "Specify input file, a file containing structure abbreviations.\n";
+    print STDERR "Specify input file, a file containing structure abbreviations, optional output file prefix.\n";
     exit 1;
 }
 
@@ -243,7 +243,7 @@ while(<$input_file>)
       # stored in this field.
       &defs_append_s($type,$fld_name,$szof,$itype);
      }
-     else { print STDERR "// Unrecognized flag ${flag}"; }
+     else { print STDERR "// Unrecognized flag ${flag}\n"; }
     }
    }
   }else{

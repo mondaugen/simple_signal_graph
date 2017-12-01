@@ -23,6 +23,7 @@ static char_stream_vt_t _file_cs_vt = {
     .get_chr = _get_chr,
 };
 
+/* TODO: Apparently if you can lock the stream getc is faster. */
 file_cs_t *
 file_cs_new_from_path(char *path)
 {
